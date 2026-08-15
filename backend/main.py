@@ -1,83 +1,35 @@
 import os
 import uuid
+import shutil
+from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, UploadFile, File
+
+from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from gradio_client import Client, handle_file
 
 
-# ==========================================
+# ============================================================
+# KQLF AI VIRTUAL TRY-ON BACKEND
+# ============================================================
+
+BASE_DIR = Path(__file__).resolve().parent
+
+RESULTS_DIR = BASE_DIR / "results"
+UPLOADS_DIR = BASE_DIR / "uploads"
+
+RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+# ============================================================
 # ENVIRONMENT
-# ==========================================
+# ============================================================
 
-BASE_DIR = os.path.dirname(
-    os.path.abspath(__file__)
-)
-
-ENV_FILE = os.path.join(
-    BASE_DIR,
-    ".env"
-)
-
-load_dotenv(ENV_FILE)
-
-
-# ==========================================
-# APP
-# ==========================================
-
-app = FastAPI(
-    title="StyleAI Backend",
-    description="AI-powered e-commerce and virtual try-on backend",
-    version="1.0.0"
-)
-
-
-# ==========================================
-# CORS
-# ==========================================
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173"
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-
-# ==========================================
-# RESULT FOLDER
-# ==========================================
-
-RESULT_DIR = os.path.join(
-    BASE_DIR,
-    "results"
-)
-
-os.makedirs(
-    RESULT_DIR,
-    exist_ok=True
-)
-
-
-# Make /results/... accessible
-app.mount(
-    "/results",
-    StaticFiles(directory=RESULT_DIR),
-    name="results"
-)
-
-
-# ==========================================
-# HUGGING FACE IDM-VTON
-# ==========================================
+load_dotenv(BASE_DIR / ".env")
 
 HF_TOKEN = os.getenv("HF_TOKEN")
 
@@ -87,446 +39,776 @@ else:
     print("WARNING: HF_TOKEN is missing from .env")
 
 
-# ==========================================
+# ============================================================
+# FASTAPI
+# ============================================================
+
+app = FastAPI(
+    title="KQLF AI Virtual Try-On API",
+    description="AI-powered virtual fashion try-on backend",
+    version="1.0.0"
+)
+
+
+# ============================================================
+# CORS
+# ============================================================
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# ============================================================
+# STATIC RESULTS
+# ============================================================
+
+app.mount(
+    "/results",
+    StaticFiles(directory=str(RESULTS_DIR)),
+    name="results"
+)
+
+
+# ============================================================
 # HOME
-# ==========================================
+# ============================================================
 
 @app.get("/")
-def home():
+async def root():
 
     return {
-        "message": "StyleAI Backend is running"
+        "success": True,
+        "message": "KQLF AI Virtual Try-On Backend is running",
+        "service": "IDM-VTON",
+        "status": "online"
     }
 
 
-# ==========================================
+# ============================================================
 # HEALTH
-# ==========================================
+# ============================================================
 
 @app.get("/health")
-def health():
+async def health():
 
     return {
+        "success": True,
         "status": "healthy"
     }
 
 
-# ==========================================
+# ============================================================
+# SAVE UPLOADED FILE
+# ============================================================
+
+async def save_upload_file(
+    upload_file: UploadFile,
+    destination: Path
+):
+
+    with destination.open("wb") as buffer:
+
+        while True:
+
+            chunk = await upload_file.read(
+                1024 * 1024
+            )
+
+            if not chunk:
+                break
+
+            buffer.write(chunk)
+
+    return destination
+
+
+# ============================================================
 # UPLOAD PHOTO
-# ==========================================
+# ============================================================
 
 @app.post("/upload-photo")
 async def upload_photo(
     file: UploadFile = File(...)
 ):
 
-    return {
+    print()
+    print("=" * 60)
+    print("PHOTO UPLOAD")
+    print("=" * 60)
 
-        "success": True,
+    print("File:", file.filename)
 
-        "message":
-            "Photo uploaded successfully",
-
-        "filename":
-            file.filename
+    allowed_extensions = {
+        ".jpg",
+        ".jpeg",
+        ".png",
+        ".webp"
     }
 
+    extension = Path(
+        file.filename or ""
+    ).suffix.lower()
 
-# ==========================================
-# AI TRY-ON
-# ==========================================
-
-@app.post("/try-on")
-async def try_on(
-    customer_image: UploadFile = File(...),
-    product_image: UploadFile = File(...)
-):
-
-    # --------------------------------------
-    # Check Hugging Face token
-    # --------------------------------------
-
-    if not HF_TOKEN:
+    if extension not in allowed_extensions:
 
         return {
-
             "success": False,
-
-            "message":
-                "HF_TOKEN is missing from .env"
-
+            "message": (
+                "Invalid image format. "
+                "Please upload JPG, JPEG, PNG or WEBP."
+            )
         }
 
-
-    print(
-        "Starting AI Virtual Try-On..."
+    filename = (
+        f"person_"
+        f"{uuid.uuid4().hex}"
+        f"{extension}"
     )
 
-
-    # --------------------------------------
-    # Temporary files
-    # --------------------------------------
-
-    customer_filename = (
-        f"person_{uuid.uuid4().hex}.jpg"
-    )
-
-    product_filename = (
-        f"garment_{uuid.uuid4().hex}.jpg"
-    )
-
-
-    customer_path = os.path.join(
-        RESULT_DIR,
-        customer_filename
-    )
-
-    product_path = os.path.join(
-        RESULT_DIR,
-        product_filename
-    )
-
-
-    # --------------------------------------
-    # Read images
-    # --------------------------------------
+    output_path = RESULTS_DIR / filename
 
     try:
 
-        customer_data = (
-            await customer_image.read()
+        await save_upload_file(
+            file,
+            output_path
         )
-
-        product_data = (
-            await product_image.read()
-        )
-
-    except Exception as error:
 
         print(
-            "Image reading error:",
-            error
+            "Photo saved:",
+            output_path
         )
 
         return {
-
-            "success": False,
-
-            "message":
-                "Could not read uploaded images",
-
-            "error":
-                str(error)
-
+            "success": True,
+            "message": "Photo uploaded successfully.",
+            "filename": filename
         }
 
+    except Exception as e:
 
-    # --------------------------------------
-    # Validate images
-    # --------------------------------------
-
-    if not customer_data:
+        print(
+            "Upload error:",
+            str(e)
+        )
 
         return {
-
             "success": False,
-
-            "message":
-                "Customer image is empty"
-
+            "message": "Could not save photo.",
+            "error": str(e)
         }
 
 
-    if not product_data:
+# ============================================================
+# CONNECT TO IDM-VTON
+# ============================================================
 
-        return {
+def connect_to_idm_vton():
 
-            "success": False,
-
-            "message":
-                "Product image is empty"
-
-        }
-
-
-    # --------------------------------------
-    # Save temporary images
-    # --------------------------------------
+    print()
+    print("=" * 60)
+    print("Connecting to Hugging Face IDM-VTON...")
+    print("=" * 60)
 
     try:
 
-        with open(
-            customer_path,
-            "wb"
-        ) as file:
+        if HF_TOKEN:
 
-            file.write(
-                customer_data
+            client = Client(
+                "yisol/IDM-VTON",
+                token=HF_TOKEN
             )
 
+        else:
 
-        with open(
-            product_path,
-            "wb"
-        ) as file:
-
-            file.write(
-                product_data
+            client = Client(
+                "yisol/IDM-VTON"
             )
-
-
-    except Exception as error:
-
-        print(
-            "File save error:",
-            error
-        )
-
-        return {
-
-            "success": False,
-
-            "message":
-                "Could not save uploaded images",
-
-            "error":
-                str(error)
-
-        }
-
-
-    print(
-        "Customer image:",
-        customer_path
-    )
-
-    print(
-        "Product image:",
-        product_path
-    )
-
-
-    # ======================================
-    # CONNECT TO IDM-VTON
-    # ======================================
-
-    try:
-
-        print(
-            "Connecting to Hugging Face IDM-VTON..."
-        )
-
-
-        client = Client(
-            "yisol/IDM-VTON",
-            token=HF_TOKEN
-        )
-
 
         print(
             "Connected to IDM-VTON."
         )
 
+        return client
 
-        # ----------------------------------
-        # Person image structure
-        # ----------------------------------
+    except Exception as e:
 
-        person_image = {
+        print(
+            "IDM-VTON connection failed:",
+            str(e)
+        )
 
-            "background":
-                customer_path,
+        raise
+
+
+# ============================================================
+# SAVE GENERATED RESULT
+# ============================================================
+
+def save_generated_result(
+    result_file,
+    request_id
+):
+
+    output_filename = (
+        f"tryon_{request_id}.png"
+    )
+
+    output_path = (
+        RESULTS_DIR / output_filename
+    )
+
+    # --------------------------------------------------------
+    # STRING PATH
+    # --------------------------------------------------------
+
+    if isinstance(
+        result_file,
+        str
+    ):
+
+        source_path = Path(
+            result_file
+        )
+
+        if source_path.exists():
+
+            shutil.copy2(
+                source_path,
+                output_path
+            )
+
+            return output_filename
+
+        # Could be a remote URL
+        if result_file.startswith(
+            "http://"
+        ) or result_file.startswith(
+            "https://"
+        ):
+
+            return result_file
+
+    # --------------------------------------------------------
+    # DICTIONARY
+    # --------------------------------------------------------
+
+    if isinstance(
+        result_file,
+        dict
+    ):
+
+        possible_path = (
+            result_file.get("path")
+            or result_file.get("url")
+        )
+
+        if possible_path:
+
+            source_path = Path(
+                possible_path
+            )
+
+            if source_path.exists():
+
+                shutil.copy2(
+                    source_path,
+                    output_path
+                )
+
+                return output_filename
+
+            return possible_path
+
+    return None
+
+
+# ============================================================
+# AI VIRTUAL TRY-ON
+# ============================================================
+
+@app.post("/try-on")
+async def try_on(
+
+    customer_image: UploadFile = File(...),
+
+    product_image: UploadFile = File(...),
+
+    garment_description: str = Form(
+        "A fashionable clothing garment"
+    )
+
+):
+
+    request_id = uuid.uuid4().hex
+
+    print()
+    print("=" * 70)
+    print("STARTING AI VIRTUAL TRY-ON")
+    print("=" * 70)
+
+    print(
+        "Request ID:",
+        request_id
+    )
+
+    print(
+        "Customer image:",
+        customer_image.filename
+    )
+
+    print(
+        "Product image:",
+        product_image.filename
+    )
+
+    print(
+        "Garment description:",
+        garment_description
+    )
+
+    # ========================================================
+    # VALIDATE EXTENSIONS
+    # ========================================================
+
+    allowed_extensions = {
+        ".jpg",
+        ".jpeg",
+        ".png",
+        ".webp"
+    }
+
+    customer_extension = Path(
+        customer_image.filename or ""
+    ).suffix.lower()
+
+    product_extension = Path(
+        product_image.filename or ""
+    ).suffix.lower()
+
+    if customer_extension not in allowed_extensions:
+
+        return {
+            "success": False,
+            "message": (
+                "Invalid customer image format."
+            )
+        }
+
+    if product_extension not in allowed_extensions:
+
+        return {
+            "success": False,
+            "message": (
+                "Invalid product image format."
+            )
+        }
+
+    # ========================================================
+    # CREATE FILE NAMES
+    # ========================================================
+
+    customer_filename = (
+        f"customer_{request_id}"
+        f"{customer_extension}"
+    )
+
+    product_filename = (
+        f"garment_{request_id}"
+        f"{product_extension}"
+    )
+
+    customer_path = (
+        UPLOADS_DIR / customer_filename
+    )
+
+    product_path = (
+        UPLOADS_DIR / product_filename
+    )
+
+    # ========================================================
+    # SAVE INPUT FILES
+    # ========================================================
+
+    try:
+
+        print()
+        print("Saving uploaded images...")
+
+        await save_upload_file(
+            customer_image,
+            customer_path
+        )
+
+        await save_upload_file(
+            product_image,
+            product_path
+        )
+
+        print(
+            "Customer image saved:",
+            customer_path
+        )
+
+        print(
+            "Product image saved:",
+            product_path
+        )
+
+    except Exception as e:
+
+        print(
+            "Error saving images:",
+            str(e)
+        )
+
+        return {
+            "success": False,
+            "message": "Could not save uploaded images.",
+            "error": str(e)
+        }
+
+    # ========================================================
+    # CONNECT TO IDM-VTON
+    # ========================================================
+
+    try:
+
+        client = connect_to_idm_vton()
+
+    except Exception as e:
+
+        return {
+            "success": False,
+            "message": (
+                "Could not connect to "
+                "Hugging Face IDM-VTON."
+            ),
+            "error": str(e)
+        }
+
+    # ========================================================
+    # PREPARE IDM-VTON INPUTS
+    # ========================================================
+
+    try:
+
+        print()
+        print(
+            "Preparing images for IDM-VTON..."
+        )
+
+        # IDM-VTON uses an ImageEditor-style input.
+        #
+        # background = customer/person image
+        # layers     = no manually painted mask
+        # composite  = none
+        #
+        # Auto masking is enabled below.
+
+        person_input = {
+
+            "background": handle_file(
+                str(customer_path)
+            ),
 
             "layers": [],
 
-            "composite":
-                customer_path
-
+            "composite": None
         }
 
-
-        # ----------------------------------
-        # Garment description
-        # ----------------------------------
-
-        garment_description = (
-            "A fashionable clothing item "
-            "for an e-commerce virtual "
-            "try-on."
+        garment_input = handle_file(
+            str(product_path)
         )
-
-
-        # ----------------------------------
-        # Call IDM-VTON
-        # ----------------------------------
 
         print(
-            "Sending images to IDM-VTON..."
+            "Images prepared successfully."
         )
 
+    except Exception as e:
+
+        print(
+            "Image preparation error:",
+            str(e)
+        )
+
+        return {
+            "success": False,
+            "message": (
+                "Could not prepare images "
+                "for IDM-VTON."
+            ),
+            "error": str(e)
+        }
+
+    # ========================================================
+    # CALL IDM-VTON
+    # ========================================================
+
+    print()
+    print("=" * 60)
+    print("Sending images to IDM-VTON...")
+    print("=" * 60)
+
+    try:
 
         result = client.predict(
 
-            person_image,
+            dict=person_input,
 
-            handle_file(
-                product_path
-            ),
+            garm_img=garment_input,
 
-            garment_description,
+            garment_des=garment_description,
 
-            True,
+            is_checked=True,
 
-            False,
+            is_checked_crop=False,
 
-            30,
+            denoise_steps=30,
 
-            42,
+            seed=42,
 
             api_name="/tryon"
 
         )
 
-
+        print()
         print(
             "IDM-VTON response received."
         )
 
-
-        # ----------------------------------
-        # Extract generated image
-        # ----------------------------------
-
-        if not result:
-
-            return {
-
-                "success": False,
-
-                "message":
-                    "IDM-VTON returned no result"
-
-            }
-
-
-        output_file = result[0]
-
-
-        if not output_file:
-
-            return {
-
-                "success": False,
-
-                "message":
-                    "AI result image was empty"
-
-            }
-
+        print(
+            "Response type:",
+            type(result)
+        )
 
         print(
-            "Generated result:",
-            output_file
+            "Response:",
+            result
         )
 
+    except Exception as e:
 
-        # ==================================
-        # COPY RESULT TO OUR RESULTS FOLDER
-        # ==================================
-
-        final_filename = (
-            f"tryon_{uuid.uuid4().hex}.png"
-        )
-
-
-        final_path = os.path.join(
-            RESULT_DIR,
-            final_filename
-        )
-
-
-        # ----------------------------------
-        # Copy generated file
-        # ----------------------------------
-
-        with open(
-            output_file,
-            "rb"
-        ) as source_file:
-
-            generated_data = (
-                source_file.read()
-            )
-
-
-        with open(
-            final_path,
-            "wb"
-        ) as result_file:
-
-            result_file.write(
-                generated_data
-            )
-
-
-        # ----------------------------------
-        # Browser URL
-        # ----------------------------------
-
-        result_url = (
-            "http://127.0.0.1:8000/"
-            f"results/{final_filename}"
-        )
-
+        print()
+        print("=" * 70)
+        print("IDM-VTON ERROR")
+        print("=" * 70)
 
         print(
-            "AI result saved:",
-            final_path
+            "Error:",
+            str(e)
         )
 
-
-        # ==================================
-        # SUCCESS
-        # ==================================
+        print("=" * 70)
 
         return {
-
-            "success": True,
-
-            "message":
-                "AI Virtual Try-On completed",
-
-            "image_url":
-                result_url
-
-        }
-
-
-    # ======================================
-    # ERROR HANDLING
-    # ======================================
-
-    except Exception as error:
-
-        print(
-            "IDM-VTON error:",
-            error
-        )
-
-
-        return {
-
             "success": False,
-
-            "message":
-                "Could not process AI Try-On",
-
-            "error":
-                str(error)
-
+            "message": (
+                "IDM-VTON could not "
+                "process the images."
+            ),
+            "error": str(e)
         }
 
+    # ========================================================
+    # CHECK RESPONSE
+    # ========================================================
 
-# ==========================================
-# END
-# ========================================== 
+    if not result:
+
+        print(
+            "IDM-VTON returned no result."
+        )
+
+        return {
+            "success": False,
+            "message": (
+                "IDM-VTON returned no result."
+            )
+        }
+
+    # ========================================================
+    # EXTRACT GENERATED IMAGE
+    # ========================================================
+
+    try:
+
+        generated_image = result[0]
+
+        print()
+        print(
+            "Generated image:"
+        )
+
+        print(
+            generated_image
+        )
+
+    except Exception as e:
+
+        print(
+            "Could not extract generated image:",
+            str(e)
+        )
+
+        return {
+            "success": False,
+            "message": (
+                "Could not extract "
+                "the generated image."
+            ),
+            "error": str(e)
+        }
+
+    # ========================================================
+    # SAVE GENERATED IMAGE
+    # ========================================================
+
+    try:
+
+        saved_result = save_generated_result(
+            generated_image,
+            request_id
+        )
+
+    except Exception as e:
+
+        print(
+            "Error saving generated image:",
+            str(e)
+        )
+
+        return {
+            "success": False,
+            "message": (
+                "Could not save "
+                "the generated image."
+            ),
+            "error": str(e)
+        }
+
+    if not saved_result:
+
+        print(
+            "Unknown generated image format."
+        )
+
+        return {
+            "success": False,
+            "message": (
+                "IDM-VTON returned an "
+                "unsupported image format."
+            ),
+            "details": str(
+                generated_image
+            )
+        }
+
+    # ========================================================
+    # CREATE IMAGE URL
+    # ========================================================
+
+    if saved_result.startswith(
+        "http://"
+    ) or saved_result.startswith(
+        "https://"
+    ):
+
+        image_url = saved_result
+
+    else:
+
+        image_url = (
+            "http://127.0.0.1:8000"
+            f"/results/{saved_result}"
+        )
+
+    # ========================================================
+    # SUCCESS
+    # ========================================================
+
+    print()
+    print("=" * 70)
+    print("AI VIRTUAL TRY-ON SUCCESS")
+    print("=" * 70)
+
+    print(
+        "Image URL:",
+        image_url
+    )
+
+    print("=" * 70)
+    print()
+
+    # IMPORTANT:
+    #
+    # Your existing TryOn.jsx expects:
+    #
+    # data.image_url
+    #
+    # so we return image_url here.
+
+    return {
+
+        "success": True,
+
+        "message": (
+            "AI Virtual Try-On "
+            "completed successfully."
+        ),
+
+        "image_url": image_url
+
+    }
+
+
+# ============================================================
+# SERVER
+# ============================================================
+
+if __name__ == "__main__":
+
+    import uvicorn
+
+    print()
+    print("=" * 70)
+    print("KQLF AI VIRTUAL TRY-ON BACKEND")
+    print("=" * 70)
+
+    print(
+        "Backend directory:",
+        BASE_DIR
+    )
+
+    print(
+        "Results directory:",
+        RESULTS_DIR
+    )
+
+    print(
+        "Uploads directory:",
+        UPLOADS_DIR
+    )
+
+    print(
+        "Starting FastAPI server..."
+    )
+
+    print(
+        "URL: http://127.0.0.1:8000"
+    )
+
+    print("=" * 70)
+    print()
+
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True
+    ) 
