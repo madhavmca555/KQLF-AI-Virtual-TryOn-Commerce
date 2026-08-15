@@ -36,7 +36,17 @@ HF_TOKEN = os.getenv("HF_TOKEN")
 if HF_TOKEN:
     print("Hugging Face token loaded successfully.")
 else:
-    print("WARNING: HF_TOKEN is missing from .env")
+    print("WARNING: HF_TOKEN is missing.")
+
+
+# ============================================================
+# PRODUCTION BACKEND URL
+# ============================================================
+
+BACKEND_URL = os.getenv(
+    "BACKEND_URL",
+    "https://kqlf-ai-virtual-tryon-commerce.onrender.com"
+)
 
 
 # ============================================================
@@ -294,6 +304,7 @@ def save_generated_result(
 
             return result_file
 
+
     # --------------------------------------------------------
     # DICTIONARY
     # --------------------------------------------------------
@@ -310,6 +321,7 @@ def save_generated_result(
 
         if possible_path:
 
+            # If it is a local file
             source_path = Path(
                 possible_path
             )
@@ -323,7 +335,14 @@ def save_generated_result(
 
                 return output_filename
 
-            return possible_path
+            # If it is already a remote URL
+            if str(possible_path).startswith(
+                "http://"
+            ) or str(possible_path).startswith(
+                "https://"
+            ):
+
+                return possible_path
 
     return None
 
@@ -372,6 +391,7 @@ async def try_on(
         garment_description
     )
 
+
     # ========================================================
     # VALIDATE EXTENSIONS
     # ========================================================
@@ -409,6 +429,7 @@ async def try_on(
             )
         }
 
+
     # ========================================================
     # CREATE FILE NAMES
     # ========================================================
@@ -430,6 +451,7 @@ async def try_on(
     product_path = (
         UPLOADS_DIR / product_filename
     )
+
 
     # ========================================================
     # SAVE INPUT FILES
@@ -473,6 +495,7 @@ async def try_on(
             "error": str(e)
         }
 
+
     # ========================================================
     # CONNECT TO IDM-VTON
     # ========================================================
@@ -492,6 +515,7 @@ async def try_on(
             "error": str(e)
         }
 
+
     # ========================================================
     # PREPARE IDM-VTON INPUTS
     # ========================================================
@@ -503,7 +527,7 @@ async def try_on(
             "Preparing images for IDM-VTON..."
         )
 
-        # IDM-VTON uses an ImageEditor-style input.
+        # IDM-VTON ImageEditor-style input
         #
         # background = customer/person image
         # layers     = no manually painted mask
@@ -545,6 +569,7 @@ async def try_on(
             ),
             "error": str(e)
         }
+
 
     # ========================================================
     # CALL IDM-VTON
@@ -615,6 +640,7 @@ async def try_on(
             "error": str(e)
         }
 
+
     # ========================================================
     # CHECK RESPONSE
     # ========================================================
@@ -631,6 +657,7 @@ async def try_on(
                 "IDM-VTON returned no result."
             )
         }
+
 
     # ========================================================
     # EXTRACT GENERATED IMAGE
@@ -665,6 +692,7 @@ async def try_on(
             "error": str(e)
         }
 
+
     # ========================================================
     # SAVE GENERATED IMAGE
     # ========================================================
@@ -692,6 +720,7 @@ async def try_on(
             "error": str(e)
         }
 
+
     if not saved_result:
 
         print(
@@ -709,6 +738,7 @@ async def try_on(
             )
         }
 
+
     # ========================================================
     # CREATE IMAGE URL
     # ========================================================
@@ -723,10 +753,15 @@ async def try_on(
 
     else:
 
+        # IMPORTANT:
+        # Use the public Render backend URL.
+        # Do NOT use 127.0.0.1 here.
+
         image_url = (
-            "http://127.0.0.1:8000"
+            f"{BACKEND_URL}"
             f"/results/{saved_result}"
         )
+
 
     # ========================================================
     # SUCCESS
@@ -745,13 +780,6 @@ async def try_on(
     print("=" * 70)
     print()
 
-    # IMPORTANT:
-    #
-    # Your existing TryOn.jsx expects:
-    #
-    # data.image_url
-    #
-    # so we return image_url here.
 
     return {
 
