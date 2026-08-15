@@ -19,6 +19,12 @@ function TryOn() {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
 
+  // ==========================================
+  // LIVE RENDER BACKEND
+  // ==========================================
+
+  const BACKEND_URL =
+    "https://kqlf-ai-virtual-tryon-commerce.onrender.com";
 
   // ==========================================
   // LOAD SELECTED PRODUCT
@@ -41,7 +47,6 @@ function TryOn() {
       });
     }
   }, []);
-
 
   // ==========================================
   // PHOTO REQUIREMENTS
@@ -104,7 +109,6 @@ function TryOn() {
     ];
   };
 
-
   // ==========================================
   // FILE UPLOAD
   // ==========================================
@@ -123,7 +127,6 @@ function TryOn() {
     setTryOnResult(null);
     setCapturedImage(null);
   };
-
 
   // ==========================================
   // OPEN CAMERA
@@ -180,7 +183,6 @@ function TryOn() {
     }
   };
 
-
   // ==========================================
   // STOP CAMERA
   // ==========================================
@@ -195,7 +197,6 @@ function TryOn() {
     setCameraStream(null);
     setShowCamera(false);
   };
-
 
   // ==========================================
   // SWITCH CAMERA
@@ -248,7 +249,6 @@ function TryOn() {
       );
     }
   };
-
 
   // ==========================================
   // CAPTURE PHOTO
@@ -329,7 +329,6 @@ function TryOn() {
     );
   };
 
-
   // ==========================================
   // RETAKE
   // ==========================================
@@ -342,7 +341,6 @@ function TryOn() {
 
     await openCamera();
   };
-
 
   // ==========================================
   // UPLOAD PHOTO TO BACKEND
@@ -368,7 +366,7 @@ function TryOn() {
     try {
       const response =
         await fetch(
-          "http://127.0.0.1:8000/upload-photo",
+          `${BACKEND_URL}/upload-photo`,
           {
             method: "POST",
             body: formData,
@@ -398,11 +396,10 @@ function TryOn() {
       );
 
       setUploadStatus(
-        "Could not connect to the backend."
+        "Could not connect to the backend. Please try again."
       );
     }
   };
-
 
   // ==========================================
   // AI TRY-ON
@@ -466,10 +463,10 @@ function TryOn() {
           .pop() || "product.jpg"
       );
 
-      // Send request
+      // Send request to LIVE Render backend
       const response =
         await fetch(
-          "http://127.0.0.1:8000/try-on",
+          `${BACKEND_URL}/try-on`,
           {
             method: "POST",
             body: formData,
@@ -513,14 +510,22 @@ function TryOn() {
         );
       }
 
-      setTryOnResult(
-        data.image_url
-      );
+      // Make sure the result image uses
+      // the live Render backend URL.
+      const resultUrl =
+        data.image_url.startsWith("http")
+          ? data.image_url
+          : `${BACKEND_URL}${
+              data.image_url.startsWith("/")
+                ? ""
+                : "/"
+            }${data.image_url}`;
+
+      setTryOnResult(resultUrl);
 
       setUploadStatus(
         "✨ AI Virtual Try-On completed successfully!"
       );
-
     } catch (error) {
       console.error(
         "Try-On Error:",
@@ -541,14 +546,13 @@ function TryOn() {
         errorMessage.includes(
           "monthly try-ons"
         ) ||
-        errorMessage.includes(
-          "plan's monthly"
-        ) ||
-        errorMessage.includes(
-          "monthly"
-        ) &&
-        errorMessage.includes(
-          "try-ons"
+        (
+          errorMessage.includes(
+            "monthly"
+          ) &&
+          errorMessage.includes(
+            "try-ons"
+          )
         )
       ) {
         setUploadStatus(
@@ -556,15 +560,13 @@ function TryOn() {
         );
       } else {
         setUploadStatus(
-          "⚠️ We couldn't process the AI Try-On right now. Please check your photo and try again."
+          `⚠️ ${error.message || "We couldn't process the AI Try-On right now. Please check your photo and try again."}`
         );
       }
-
     } finally {
       setIsProcessing(false);
     }
   };
-
 
   // ==========================================
   // CAMERA CLEANUP
@@ -582,7 +584,6 @@ function TryOn() {
     };
   }, [cameraStream]);
 
-
   // ==========================================
   // LOADING
   // ==========================================
@@ -597,10 +598,8 @@ function TryOn() {
     );
   }
 
-
   const photoInstructions =
     getPhotoInstructions();
-
 
   // ==========================================
   // PAGE
@@ -617,7 +616,6 @@ function TryOn() {
         See how the selected product
         may look on you.
       </p>
-
 
       {/* SELECTED PRODUCT */}
 
@@ -644,7 +642,6 @@ function TryOn() {
         </p>
 
       </div>
-
 
       {/* PHOTO REQUIREMENTS */}
 
@@ -680,7 +677,6 @@ function TryOn() {
 
       </div>
 
-
       {/* PHOTO OPTIONS */}
 
       {!showCamera && !image && (
@@ -696,7 +692,6 @@ function TryOn() {
             take a new photo using your
             camera.
           </p>
-
 
           <div
             style={{
@@ -725,6 +720,7 @@ function TryOn() {
                 fontWeight: "700",
               }}
             >
+
               📁 Upload Photo
 
               <input
@@ -739,7 +735,6 @@ function TryOn() {
               />
 
             </label>
-
 
             {/* CAMERA */}
 
@@ -767,7 +762,6 @@ function TryOn() {
 
       )}
 
-
       {/* CAMERA */}
 
       {showCamera && (
@@ -782,7 +776,6 @@ function TryOn() {
             Position yourself inside
             the camera frame.
           </p>
-
 
           <div
             style={{
@@ -814,7 +807,6 @@ function TryOn() {
             />
 
           </div>
-
 
           {/* CAMERA BUTTONS */}
 
@@ -848,7 +840,6 @@ function TryOn() {
               📸 Capture Photo
             </button>
 
-
             <button
               onClick={
                 switchCamera
@@ -870,7 +861,6 @@ function TryOn() {
             >
               🔄 Switch Camera
             </button>
-
 
             <button
               onClick={
@@ -898,7 +888,6 @@ function TryOn() {
 
       )}
 
-
       {/* HIDDEN CANVAS */}
 
       <canvas
@@ -907,7 +896,6 @@ function TryOn() {
           display: "none",
         }}
       />
-
 
       {/* PHOTO PREVIEW */}
 
@@ -924,7 +912,6 @@ function TryOn() {
             alt="Your photo"
           />
 
-
           {capturedImage && (
 
             <p
@@ -938,7 +925,6 @@ function TryOn() {
             </p>
 
           )}
-
 
           <div
             style={{
@@ -965,7 +951,6 @@ function TryOn() {
 
             )}
 
-
             {/* UPLOAD */}
 
             <button
@@ -981,7 +966,6 @@ function TryOn() {
         </div>
 
       )}
-
 
       {/* STATUS */}
 
@@ -1000,7 +984,6 @@ function TryOn() {
         </p>
 
       )}
-
 
       {/* TRY ON */}
 
@@ -1031,7 +1014,6 @@ function TryOn() {
 
       )}
 
-
       {/* AI RESULT */}
 
       {tryOnResult && (
@@ -1042,12 +1024,10 @@ function TryOn() {
             ✨ AI Try-On Result
           </h2>
 
-
           <img
             src={tryOnResult}
             alt="AI Virtual Try-On Result"
           />
-
 
           <div
             className="result-buttons"
@@ -1069,7 +1049,6 @@ function TryOn() {
             >
               🛒 Go to Cart
             </button>
-
 
             <button
               onClick={() => {
